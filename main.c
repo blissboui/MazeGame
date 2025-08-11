@@ -17,18 +17,23 @@
 #define PATH 0 // 길
 #define WALL 1 // 벽
 
-#define WIDTH  50
+#define WIDTH  26
 #define HEIGHT 29
 
+#define MAX_WIDTH  194//133
+#define MAX_HEIGHT 50
+
 #define VISION_RANGE 5  // 시야 범위
-#define MAZE_MAP_FILE_PATH "Map\\1.txt" //"Map\\50x35 map.txt"
+#define MAZE_MAP_FILE_PATH "Map\\2.txt" //"Map\\50x35 map.txt"
 
 void Goto_XY(int x, int y, char* str);
 void HideCursor(int cursor);
 void MoveUser(COORD *userPos, unsigned char *wall);
+void ShowUser(COORD *userPos, unsigned char *wall, int newX, int newY);
 void TriggerAltEnter(void);
 void LoadMazeText(unsigned char *wall);
 void Setup(void);
+void InitMap(COORD uPos, unsigned char *wall);
 
 void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos);
 
@@ -38,21 +43,8 @@ int main(void)
     unsigned char *wallData = (unsigned char*)malloc(sizeof(unsigned char) * (WIDTH*HEIGHT)); // 1:벽, 0:길
     Setup();
     LoadMazeText(wallData);
-    
-    for(int y=0 ; y<HEIGHT ; y++)
-    {
-        for(int x=0 ; x<WIDTH ; x++)
-        {
-            if(y == 0 || y == HEIGHT-1 || x == 0 || x == WIDTH-1 || (x < userPos.X+VISION_RANGE+1 && y < userPos.Y+VISION_RANGE+1))
-            {
-                if(*(wallData+(y*WIDTH+x)) == WALL)
-                    Goto_XY(x, y, "██");
-            }
-            
-            else
-                Goto_XY(x, y, " ");
-        }
-    }
+
+    InitMap(userPos, wallData); // 초기 맵 출력
     Goto_XY(userPos.X, userPos.Y, "△");
     while(1)
     {
@@ -61,6 +53,24 @@ int main(void)
     }
     free(wallData);
     return 0;
+}
+
+void InitMap(COORD uPos, unsigned char *wall)
+{
+    for(int y=0 ; y<HEIGHT ; y++)
+    {
+        for(int x=0 ; x<WIDTH ; x++)
+        {
+            if(/*y == 0 || y == HEIGHT-1 || x == 0 || x == WIDTH-1 ||*/ (x <= uPos.X+VISION_RANGE && y <= uPos.Y+VISION_RANGE))
+            {
+                if(*(wall+(y*WIDTH+x)) == WALL)
+                    Goto_XY(x, y, "██");
+            }
+            
+            else
+                Goto_XY(x, y, "  ");
+        }
+    }
 }
 
 void LoadMazeText(unsigned char *wall)
@@ -142,6 +152,13 @@ void MoveUser(COORD *userPos, unsigned char *wall)
     else
         return;
 
+
+    ShowUser(userPos, wall, newX, newY);
+    lastMoveTime = now;
+}
+
+void ShowUser(COORD *userPos, unsigned char *wall, int newX, int newY)
+{
     if(*(wall + (newY * WIDTH + newX)) != WALL)
     {
         Goto_XY(userPos->X, userPos->Y, "  ");
@@ -150,7 +167,6 @@ void MoveUser(COORD *userPos, unsigned char *wall)
         userPos->X = newX;
         userPos->Y = newY;
     }
-    lastMoveTime = now;
 }
 
 void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos)
@@ -159,9 +175,9 @@ void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos)
     {
         for(int x=user->X-VISION_RANGE ; x<=(user->X+VISION_RANGE) ; x++)
         {   
-            if(user->Y+VISION_RANGE < HEIGHT-1 && x > 0 && x < WIDTH-1 && *(wall + ((user->Y+VISION_RANGE) * WIDTH + x)) == WALL)
+            if(user->Y+VISION_RANGE <= HEIGHT-1 && x >= 0 && x < WIDTH && *(wall + ((user->Y+VISION_RANGE) * WIDTH + x)) == WALL)
                 Goto_XY(x, user->Y+VISION_RANGE, "  ");
-            if(user->Y-(VISION_RANGE+1) > 0 && x > 0 && x < WIDTH-1 && *(wall + ((user->Y-(VISION_RANGE+1)) * WIDTH + x)) == WALL)
+            if(user->Y-(VISION_RANGE+1) >= 0 && x >= 0 && x < WIDTH && *(wall + ((user->Y-(VISION_RANGE+1)) * WIDTH + x)) == WALL)
                 Goto_XY(x, user->Y-(VISION_RANGE+1), "██");
         }
     }
@@ -169,9 +185,9 @@ void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos)
     {
         for(int x=user->X-VISION_RANGE ; x<=user->X+VISION_RANGE ; x++)
         {
-            if(user->Y-VISION_RANGE > 0 && x > 0 && x < WIDTH-1 && *(wall + ((user->Y-VISION_RANGE) * WIDTH + x)) == WALL)
+            if(user->Y-VISION_RANGE >= 0 && x >= 0 && x < WIDTH && *(wall + ((user->Y-VISION_RANGE) * WIDTH + x)) == WALL)
                 Goto_XY(x, user->Y-VISION_RANGE, "  ");
-            if(user->Y+(VISION_RANGE+1) < HEIGHT-1 && x > 0 && x < WIDTH-1 && *(wall + ((user->Y+(VISION_RANGE+1)) * WIDTH + x)) == WALL)
+            if(user->Y+(VISION_RANGE+1) <= HEIGHT-1 && x >= 0 && x < WIDTH && *(wall + ((user->Y+(VISION_RANGE+1)) * WIDTH + x)) == WALL)
                 Goto_XY(x, user->Y+(VISION_RANGE+1), "██");
         }
     }
@@ -179,9 +195,9 @@ void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos)
     {
         for(int y=user->Y-VISION_RANGE ; y<=user->Y+VISION_RANGE ; y++)
         {
-            if(user->X+VISION_RANGE < WIDTH-1 && y >= 0 && y < HEIGHT-1 && *(wall + (y * WIDTH + (user->X+VISION_RANGE))) == WALL)
+            if(user->X+VISION_RANGE <= WIDTH-1 && y >= 0 && y < HEIGHT && *(wall + (y * WIDTH + (user->X+VISION_RANGE))) == WALL)
                 Goto_XY(user->X+VISION_RANGE, y, "  ");
-            if(user->X-(VISION_RANGE+1) > 0 && y >= 0 && y < HEIGHT-1 && *(wall + (y * WIDTH + (user->X-(VISION_RANGE+1)))) == WALL)
+            if(user->X-(VISION_RANGE+1) >= 0 && y >= 0 && y < HEIGHT && *(wall + (y * WIDTH + (user->X-(VISION_RANGE+1)))) == WALL)
                 Goto_XY(user->X-(VISION_RANGE+1), y, "██");
         }
     }
@@ -189,9 +205,9 @@ void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos)
     {
         for(int y=user->Y-VISION_RANGE ; y<=user->Y+VISION_RANGE ; y++)
         {
-            if(user->X-VISION_RANGE > 0 && y > 0 && y < HEIGHT-1 && *(wall + (y * WIDTH + (user->X-VISION_RANGE))) == WALL)
+            if(user->X-VISION_RANGE >= 0 && y >= 0 && y < HEIGHT && *(wall + (y * WIDTH + (user->X-VISION_RANGE))) == WALL)
                 Goto_XY(user->X-VISION_RANGE, y, "  ");
-            if(user->X+(VISION_RANGE+1) < WIDTH-1 && y > 0 && y < HEIGHT-1 && *(wall + (y * WIDTH + (user->X+(VISION_RANGE+1)))) == WALL)
+            if(user->X+(VISION_RANGE+1) <= WIDTH-1 && y >= 0 && y < HEIGHT && *(wall + (y * WIDTH + (user->X+(VISION_RANGE+1)))) == WALL)
                 Goto_XY(user->X+(VISION_RANGE+1), y, "██");
         }
     }
@@ -201,7 +217,9 @@ void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos)
 
 void Goto_XY(int x, int y, char* str)
 {
-    COORD pos = {x*2, y};
+    COORD map = {MAX_WIDTH/2-WIDTH, MAX_HEIGHT/2-(HEIGHT/2)};//{MAX_WIDTH/2-WIDTH, MAX_HEIGHT/2-(HEIGHT/2)};
+    COORD pos = {x*2+map.X, y+map.Y};
+
     SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), pos);
     printf("%s", str);
 }
@@ -230,4 +248,5 @@ void Setup(void)
     TriggerAltEnter();              // 콘솔창 전체화면
     HideCursor(FALSE);              // 커서 숨기기
     SetConsoleOutputCP(CP_UTF8);    // 콘솔창을 UTF-8로 설정
+    Sleep(100);
 }
