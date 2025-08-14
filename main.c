@@ -17,32 +17,39 @@
 #define PATH 0 // 길
 #define WALL 1 // 벽
 
-#define WIDTH  26
-#define HEIGHT 29
+#define EASY_WIDTH  25
+#define EASY_HEIGHT 25
+#define NORMAL_WIDTH  50
+#define NORMAL_HEIGHT 29
+#define HARD_WIDTH  50
+#define HARD_HEIGHT 35
 
 #define MAX_WIDTH  194//133
 #define MAX_HEIGHT 50
 
 #define VISION_RANGE 5  // 시야 범위
-#define MAZE_MAP_FILE_PATH "Map\\2.txt" //"Map\\50x35 map.txt"
+
+#define EASY_MAP_FILE_PATH      "Map\\EasyMap.txt"
+#define NORMAL_MAP_FILE_PATH    "Map\\NormalMap.txt"
+#define HARD_MAP_FILE_PATH      "Map\\HardMap.txt"
 
 void Goto_XY(int x, int y, char* str);
 void HideCursor(int cursor);
 void MoveUser(COORD *userPos, unsigned char *wall);
 void ShowUser(COORD *userPos, unsigned char *wall, int newX, int newY);
 void TriggerAltEnter(void);
-void LoadMazeText(unsigned char *wall);
+unsigned char* LoadMazeText(int mapSelect);
 void Setup(void);
 void InitMap(COORD uPos, unsigned char *wall);
-
+int SelectMaze(void);
 void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos);
 
+COORD mapSize = {0, 0};
 int main(void)
 {
-    COORD userPos = {0, 1};
-    unsigned char *wallData = (unsigned char*)malloc(sizeof(unsigned char) * (WIDTH*HEIGHT)); // 1:벽, 0:길
+    COORD userPos = {1, 1};
     Setup();
-    LoadMazeText(wallData);
+    unsigned char* wallData = LoadMazeText(SelectMaze());
 
     InitMap(userPos, wallData); // 초기 맵 출력
     Goto_XY(userPos.X, userPos.Y, "△");
@@ -57,13 +64,13 @@ int main(void)
 
 void InitMap(COORD uPos, unsigned char *wall)
 {
-    for(int y=0 ; y<HEIGHT ; y++)
+    for(int y=0 ; y<mapSize.Y ; y++)
     {
-        for(int x=0 ; x<WIDTH ; x++)
+        for(int x=0 ; x<mapSize.X ; x++)
         {
-            if(/*y == 0 || y == HEIGHT-1 || x == 0 || x == WIDTH-1 ||*/ (x <= uPos.X+VISION_RANGE && y <= uPos.Y+VISION_RANGE))
+            if(/*y == 0 || y == mapSize.Y-1 || x == 0 || x == mapSize.X-1 ||*/  (x <= uPos.X+VISION_RANGE && y <= uPos.Y+VISION_RANGE))
             {
-                if(*(wall+(y*WIDTH+x)) == WALL)
+                if(*(wall+(y*mapSize.X+x)) == WALL)
                     Goto_XY(x, y, "██");
             }
             
@@ -73,9 +80,41 @@ void InitMap(COORD uPos, unsigned char *wall)
     }
 }
 
-void LoadMazeText(unsigned char *wall)
+int SelectMaze(void)
 {
-    FILE *map = fopen(MAZE_MAP_FILE_PATH, "r");
+    Goto_XY(-3, -3, "> Easy");
+    Goto_XY(-2, -2, "Normal");
+    Goto_XY(-2, -1, "Hard");
+    int idx = 3;
+    int prevIdx = idx;
+    while(1)
+    {
+        if(GetAsyncKeyState(VK_RETURN) & 0x8000)                return idx;
+
+        else if(GetAsyncKeyState(VK_UP) & 0x8000 && idx < 3)    idx++;
+        
+        else if(GetAsyncKeyState(VK_DOWN) & 0x8000 && idx > 1)  idx--;
+    
+        else 
+            continue;
+    
+        Goto_XY(-3, -prevIdx, " ");
+        Goto_XY(-3, -idx, ">");
+        
+        prevIdx = idx;
+        Sleep(100);
+    }
+}
+
+unsigned char* LoadMazeText(int mapSelect)
+{
+    char *mazeMapFilePath[] = {HARD_MAP_FILE_PATH, NORMAL_MAP_FILE_PATH, EASY_MAP_FILE_PATH};
+    COORD size[] = {{HARD_WIDTH, HARD_HEIGHT}, {NORMAL_WIDTH, NORMAL_HEIGHT}, {EASY_WIDTH, EASY_HEIGHT}};
+    mapSelect--; // index 맞추기 위함 (1,2,3) -> (0,1,2)
+    mapSize = size[mapSelect];
+
+    unsigned char *wall = (unsigned char*)malloc(sizeof(unsigned char) * (size[mapSelect].X*size[mapSelect].Y)); // 1:벽, 0:길
+    FILE *map = fopen(mazeMapFilePath[mapSelect], "r");
 
     if(map == NULL)
     {
@@ -94,9 +133,9 @@ void LoadMazeText(unsigned char *wall)
         else if(ch == '\n' || ch == '\r')
             continue;
 
-        else if(len > WIDTH * HEIGHT)
+        else if(len > size[mapSelect].X * size[mapSelect].Y)
         {
-            printf("Map size mismatch. Expected %d, got %d\n", WIDTH * HEIGHT, len);
+            printf("Map size mismatch. Expected %d, got %d\n", size[mapSelect].X * size[mapSelect].Y, len);
             getch();
             exit(1);
         }
@@ -108,6 +147,7 @@ void LoadMazeText(unsigned char *wall)
             exit(1);
         }
     }
+    return wall;
 }
 // void MoveUser(COORD *userPos, unsigned char *wall)   // getch()를 사용하니 키보드 반복 입력 지연 발생
 // {
@@ -159,7 +199,7 @@ void MoveUser(COORD *userPos, unsigned char *wall)
 
 void ShowUser(COORD *userPos, unsigned char *wall, int newX, int newY)
 {
-    if(*(wall + (newY * WIDTH + newX)) != WALL)
+    if(*(wall + (newY * mapSize.X + newX)) != WALL)
     {
         Goto_XY(userPos->X, userPos->Y, "  ");
         Goto_XY(newX, newY, "△");
@@ -175,9 +215,9 @@ void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos)
     {
         for(int x=user->X-VISION_RANGE ; x<=(user->X+VISION_RANGE) ; x++)
         {   
-            if(user->Y+VISION_RANGE <= HEIGHT-1 && x >= 0 && x < WIDTH && *(wall + ((user->Y+VISION_RANGE) * WIDTH + x)) == WALL)
+            if(user->Y+VISION_RANGE <= mapSize.Y-1 && x >= 0 && x < mapSize.X && *(wall + ((user->Y+VISION_RANGE) * mapSize.X + x)) == WALL)
                 Goto_XY(x, user->Y+VISION_RANGE, "  ");
-            if(user->Y-(VISION_RANGE+1) >= 0 && x >= 0 && x < WIDTH && *(wall + ((user->Y-(VISION_RANGE+1)) * WIDTH + x)) == WALL)
+            if(user->Y-(VISION_RANGE+1) >= 0 && x >= 0 && x < mapSize.X && *(wall + ((user->Y-(VISION_RANGE+1)) * mapSize.X + x)) == WALL)
                 Goto_XY(x, user->Y-(VISION_RANGE+1), "██");
         }
     }
@@ -185,9 +225,9 @@ void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos)
     {
         for(int x=user->X-VISION_RANGE ; x<=user->X+VISION_RANGE ; x++)
         {
-            if(user->Y-VISION_RANGE >= 0 && x >= 0 && x < WIDTH && *(wall + ((user->Y-VISION_RANGE) * WIDTH + x)) == WALL)
+            if(user->Y-VISION_RANGE >= 0 && x >= 0 && x < mapSize.X && *(wall + ((user->Y-VISION_RANGE) * mapSize.X + x)) == WALL)
                 Goto_XY(x, user->Y-VISION_RANGE, "  ");
-            if(user->Y+(VISION_RANGE+1) <= HEIGHT-1 && x >= 0 && x < WIDTH && *(wall + ((user->Y+(VISION_RANGE+1)) * WIDTH + x)) == WALL)
+            if(user->Y+(VISION_RANGE+1) <= mapSize.Y-1 && x >= 0 && x < mapSize.X && *(wall + ((user->Y+(VISION_RANGE+1)) * mapSize.X + x)) == WALL)
                 Goto_XY(x, user->Y+(VISION_RANGE+1), "██");
         }
     }
@@ -195,9 +235,9 @@ void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos)
     {
         for(int y=user->Y-VISION_RANGE ; y<=user->Y+VISION_RANGE ; y++)
         {
-            if(user->X+VISION_RANGE <= WIDTH-1 && y >= 0 && y < HEIGHT && *(wall + (y * WIDTH + (user->X+VISION_RANGE))) == WALL)
+            if(user->X+VISION_RANGE <= mapSize.X-1 && y >= 0 && y < mapSize.Y && *(wall + (y * mapSize.X + (user->X+VISION_RANGE))) == WALL)
                 Goto_XY(user->X+VISION_RANGE, y, "  ");
-            if(user->X-(VISION_RANGE+1) >= 0 && y >= 0 && y < HEIGHT && *(wall + (y * WIDTH + (user->X-(VISION_RANGE+1)))) == WALL)
+            if(user->X-(VISION_RANGE+1) >= 0 && y >= 0 && y < mapSize.Y && *(wall + (y * mapSize.X + (user->X-(VISION_RANGE+1)))) == WALL)
                 Goto_XY(user->X-(VISION_RANGE+1), y, "██");
         }
     }
@@ -205,9 +245,9 @@ void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos)
     {
         for(int y=user->Y-VISION_RANGE ; y<=user->Y+VISION_RANGE ; y++)
         {
-            if(user->X-VISION_RANGE >= 0 && y >= 0 && y < HEIGHT && *(wall + (y * WIDTH + (user->X-VISION_RANGE))) == WALL)
+            if(user->X-VISION_RANGE >= 0 && y >= 0 && y < mapSize.Y && *(wall + (y * mapSize.X + (user->X-VISION_RANGE))) == WALL)
                 Goto_XY(user->X-VISION_RANGE, y, "  ");
-            if(user->X+(VISION_RANGE+1) <= WIDTH-1 && y >= 0 && y < HEIGHT && *(wall + (y * WIDTH + (user->X+(VISION_RANGE+1)))) == WALL)
+            if(user->X+(VISION_RANGE+1) <= mapSize.X-1 && y >= 0 && y < mapSize.Y && *(wall + (y * mapSize.X + (user->X+(VISION_RANGE+1)))) == WALL)
                 Goto_XY(user->X+(VISION_RANGE+1), y, "██");
         }
     }
@@ -217,7 +257,7 @@ void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos)
 
 void Goto_XY(int x, int y, char* str)
 {
-    COORD map = {MAX_WIDTH/2-WIDTH, MAX_HEIGHT/2-(HEIGHT/2)};//{MAX_WIDTH/2-WIDTH, MAX_HEIGHT/2-(HEIGHT/2)};
+    COORD map = {MAX_WIDTH/2-mapSize.X, MAX_HEIGHT/2-(mapSize.Y/2)};
     COORD pos = {x*2+map.X, y+map.Y};
 
     SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), pos);
