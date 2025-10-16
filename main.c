@@ -1,9 +1,11 @@
 #include <stdio.h>
 #include <conio.h>
-#include <windows.h>
+#include <windows.h>    // COORD
+#include <time.h>       // time()
+#include <string.h>     // memset()
 // ▉ ▲ ▓ █ ■🔺🔽🔼△🔷🔶●⬜◭△🛆▴
 /*  
-    1. 난이도 선택 (맵크기)
+    1. 난이도 선택 (맵크기) [완]
     2. 시야 범위 선택 or 아이템 획득 시 범위 증가, 감소
     3. regame
     4. time 기록 측정
@@ -14,55 +16,122 @@
 #define DOWN_KEY   80
 #define RIGHT_KEY  77
 
-#define PATH 0 // 길
-#define WALL 1 // 벽
 
 #define EASY_WIDTH  25
 #define EASY_HEIGHT 25
-#define NORMAL_WIDTH  50
+#define NORMAL_WIDTH  51
 #define NORMAL_HEIGHT 29
-#define HARD_WIDTH  50
-#define HARD_HEIGHT 35
+#define HARD_WIDTH 81
+#define HARD_HEIGHT 45
+
 
 #define MAX_WIDTH  194//133
 #define MAX_HEIGHT 50
 
 #define VISION_RANGE 5  // 시야 범위
 
-#define EASY_MAP_FILE_PATH      "Map\\EasyMap.txt"
-#define NORMAL_MAP_FILE_PATH    "Map\\NormalMap.txt"
-#define HARD_MAP_FILE_PATH      "Map\\HardMap.txt"
+typedef enum
+{
+    MAP_WALL,
+    MAP_EMPTY,
+    MAP_VISITED
+} MapFlag;
+
+typedef enum
+{
+    DIRECTION_UP,
+	DIRECTION_DOWN,
+	DIRECTION_LEFT,
+	DIRECTION_RIGHT
+} Direction;
+
+const int DIR[4][2] = {{0,-2}, {0,2}, {-2,0}, {2,0}};
+COORD mapSize = {0, 0};
 
 void Goto_XY(int x, int y, char* str);
+void GetMazeSize(void);
+void GetMaze(unsigned char map[][mapSize.X]);
+int InRange(int y, int x);
 void HideCursor(int cursor);
-void MoveUser(COORD *userPos, unsigned char *wall);
-void ShowUser(COORD *userPos, unsigned char *wall, int newX, int newY);
+void MoveUser(COORD *userPos, unsigned char map[][mapSize.X]);
+void ShowUser(COORD *userPos, unsigned char map[][mapSize.X], int newX, int newY);
 void TriggerAltEnter(void);
-unsigned char* LoadMazeText(int mapSelect);
 void Setup(void);
-void InitMap(COORD uPos, unsigned char *wall);
+void InitMap(COORD uPos, unsigned char map[][mapSize.X]);
 int SelectMaze(void);
-void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos);
+void UpdateVisionMap(COORD *user, unsigned char map[][mapSize.X], int xPos, int yPos);
 
-COORD mapSize = {0, 0};
-int main(void)
+void ShuffleArray(int array[], int size)
 {
-    COORD userPos = {1, 1};
-    Setup();
-    unsigned char* wallData = LoadMazeText(SelectMaze());
+    int r, temp;
 
-    InitMap(userPos, wallData); // 초기 맵 출력
-    Goto_XY(userPos.X, userPos.Y, "△");
-    while(1)
+    for(int i=0 ; i<(size-1) ; i++)
     {
-        MoveUser(&userPos, wallData);
-        Sleep(10);
+        r = i + (rand() % (size - i));
+        temp = array[r];
+        array[r] = array[i];
+        array[i] = temp;
     }
-    free(wallData);
-    return 0;
 }
 
-void InitMap(COORD uPos, unsigned char *wall)
+void GenerateMaze(int y, int x, unsigned char map[][mapSize.X])
+{
+    int nx, ny;
+    int directions[4] = {
+        DIRECTION_UP,
+        DIRECTION_DOWN,
+		DIRECTION_LEFT,
+		DIRECTION_RIGHT
+    };
+
+    map[y][x] = MAP_VISITED;    // 방문한 정점 표시
+    ShuffleArray(directions, 4);
+
+    for(int i=0 ; i<4 ; i++)
+    {
+        // 다음 위치 구하기
+        nx = x + DIR[directions[i]][0];
+        ny = y + DIR[directions[i]][1];
+        
+        if(InRange(ny, nx) && map[ny][nx] == MAP_WALL)
+        {
+            GenerateMaze(ny, nx, map);
+
+            // y축 이동일 시 정점 사이에 길 뚫기
+            if(ny != y)
+                map[(ny+y)/2][nx] = MAP_EMPTY;
+
+            // x축 이동일 시 정점 사이에 길 뚫기
+            else
+                map[ny][(nx+x)/2] = MAP_EMPTY;
+
+            map[ny][nx] = MAP_EMPTY;    // 이동 정점에 길 뚷기
+        }
+    }
+}
+
+COORD getRandomStartingPoint(void)
+{
+	int x = 1 + rand() % (mapSize.X - 1);
+	int y = 1 + rand() % (mapSize.Y - 1);
+	if (x % 2 == 0)
+		x--;
+	if (y % 2 == 0)
+		y--;
+	return (COORD){x, y};
+}
+
+int InRange(int y, int x)
+{
+    return (y < mapSize.Y-1 && y > 0) && (x < mapSize.X-1 && x > 0);
+}
+
+int RandomNumber(int num)
+{
+    return rand() % num + 1;
+}
+
+void InitMap(COORD uPos, unsigned char map[][mapSize.X])
 {
     for(int y=0 ; y<mapSize.Y ; y++)
     {
@@ -70,7 +139,7 @@ void InitMap(COORD uPos, unsigned char *wall)
         {
             if(/*y == 0 || y == mapSize.Y-1 || x == 0 || x == mapSize.X-1 ||*/  (x <= uPos.X+VISION_RANGE && y <= uPos.Y+VISION_RANGE))
             {
-                if(*(wall+(y*mapSize.X+x)) == WALL)
+                if(map[y][x] == MAP_WALL)
                     Goto_XY(x, y, "██");
             }
             
@@ -85,94 +154,42 @@ int SelectMaze(void)
     Goto_XY(-3, -3, "> Easy");
     Goto_XY(-2, -2, "Normal");
     Goto_XY(-2, -1, "Hard");
-    int idx = 3;
+    int idx = 0;
     int prevIdx = idx;
     while(1)
     {
         if(GetAsyncKeyState(VK_RETURN) & 0x8000)                return idx;
 
-        else if(GetAsyncKeyState(VK_UP) & 0x8000 && idx < 3)    idx++;
+        else if(GetAsyncKeyState(VK_UP) & 0x8000 && idx > 0)    idx--;
         
-        else if(GetAsyncKeyState(VK_DOWN) & 0x8000 && idx > 1)  idx--;
+        else if(GetAsyncKeyState(VK_DOWN) & 0x8000 && idx < 2)  idx++;
     
         else 
             continue;
     
-        Goto_XY(-3, -prevIdx, " ");
-        Goto_XY(-3, -idx, ">");
+        Goto_XY(-3, prevIdx-3, " ");
+        Goto_XY(-3, idx-3, ">");
         
         prevIdx = idx;
         Sleep(100);
     }
 }
 
-unsigned char* LoadMazeText(int mapSelect)
+void GetMazeSize(void)
 {
-    char *mazeMapFilePath[] = {HARD_MAP_FILE_PATH, NORMAL_MAP_FILE_PATH, EASY_MAP_FILE_PATH};
-    COORD size[] = {{HARD_WIDTH, HARD_HEIGHT}, {NORMAL_WIDTH, NORMAL_HEIGHT}, {EASY_WIDTH, EASY_HEIGHT}};
-    mapSelect--; // index 맞추기 위함 (1,2,3) -> (0,1,2)
+    COORD size[] = {{EASY_WIDTH, EASY_HEIGHT}, {NORMAL_WIDTH, NORMAL_HEIGHT}, {HARD_WIDTH, HARD_HEIGHT}};
+    int mapSelect = SelectMaze();
     mapSize = size[mapSelect];
-
-    unsigned char *wall = (unsigned char*)malloc(sizeof(unsigned char) * (size[mapSelect].X*size[mapSelect].Y)); // 1:벽, 0:길
-    FILE *map = fopen(mazeMapFilePath[mapSelect], "r");
-
-    if(map == NULL)
-    {
-        printf("\n   Failed to open file. \n");
-        getch();
-        exit(1);
-    }
-
-    int ch;
-    int len = 0;
-    while ((ch = fgetc(map)) != EOF)
-    {
-        if(ch == '0' || ch == '1')
-            wall[len++] = ch - '0';
-    
-        else if(ch == '\n' || ch == '\r')
-            continue;
-
-        else if(len > size[mapSelect].X * size[mapSelect].Y)
-        {
-            printf("Map size mismatch. Expected %d, got %d\n", size[mapSelect].X * size[mapSelect].Y, len);
-            getch();
-            exit(1);
-        }
-        
-        else 
-        {
-            printf("Invalid character: %c\n", ch);
-            getch();
-            exit(1);
-        }
-    }
-    return wall;
 }
-// void MoveUser(COORD *userPos, unsigned char *wall)   // getch()를 사용하니 키보드 반복 입력 지연 발생
-// {
-//     int key = getch();
-    
-//     if(key == 0 || key == 224)
-//     {
-//         int newX = userPos->X;
-//         int newY = userPos->Y;
-//         key = getch();
-//         if(key == UP_KEY)           newY--;
-//         else if(key == DOWN_KEY)    newY++;
-//         else if(key == RIGHT_KEY)   newX++;
-//         else if(key == LEFT_KEY)    newX--;
 
-//         if(*(wall+(newY*WIDTH+newX)) != WALL)
-//         {
-//             Goto_XY(userPos->X, userPos->Y, " ");   // 기존 위치 지우기
-//             userPos->X = newX;
-//             userPos->Y = newY;
-//             Goto_XY(userPos->X, userPos->Y, "#");   // 새로운 위치 갱신
-//         }
-//     }
-// }
-void MoveUser(COORD *userPos, unsigned char *wall)
+void GetMaze(unsigned char map[][mapSize.X])
+{
+    COORD startPoint = getRandomStartingPoint();
+
+    GenerateMaze(startPoint.Y, startPoint.X, map);  // 미로 맵 생성
+}
+
+void MoveUser(COORD *userPos, unsigned char map[][mapSize.X])
 {
     static DWORD lastMoveTime = 0;
     DWORD now = GetTickCount();
@@ -193,31 +210,31 @@ void MoveUser(COORD *userPos, unsigned char *wall)
         return;
 
 
-    ShowUser(userPos, wall, newX, newY);
+    ShowUser(userPos, map, newX, newY);
     lastMoveTime = now;
 }
 
-void ShowUser(COORD *userPos, unsigned char *wall, int newX, int newY)
+void ShowUser(COORD *userPos, unsigned char map[][mapSize.X], int newX, int newY)
 {
-    if(*(wall + (newY * mapSize.X + newX)) != WALL)
+    if(map[newY][newX] != MAP_WALL)
     {
         Goto_XY(userPos->X, userPos->Y, "  ");
         Goto_XY(newX, newY, "△");
-        UpdateCharacterMap(userPos, wall, newX, newY);
+        UpdateVisionMap(userPos, map, newX, newY);
         userPos->X = newX;
         userPos->Y = newY;
     }
 }
 
-void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos)
+void UpdateVisionMap(COORD *user, unsigned char map[][mapSize.X], int xPos, int yPos)
 {
     if(user->Y - yPos == 1)    // 위
     {
         for(int x=user->X-VISION_RANGE ; x<=(user->X+VISION_RANGE) ; x++)
         {   
-            if(user->Y+VISION_RANGE <= mapSize.Y-1 && x >= 0 && x < mapSize.X && *(wall + ((user->Y+VISION_RANGE) * mapSize.X + x)) == WALL)
+            if(user->Y+VISION_RANGE <= mapSize.Y-1 && x >= 0 && x < mapSize.X && map[user->Y+VISION_RANGE][x]/**(wall + ((user->Y+VISION_RANGE) * mapSize.X + x))*/ == MAP_WALL)
                 Goto_XY(x, user->Y+VISION_RANGE, "  ");
-            if(user->Y-(VISION_RANGE+1) >= 0 && x >= 0 && x < mapSize.X && *(wall + ((user->Y-(VISION_RANGE+1)) * mapSize.X + x)) == WALL)
+            if(user->Y-(VISION_RANGE+1) >= 0 && x >= 0 && x < mapSize.X && map[user->Y-(VISION_RANGE+1)][x] == MAP_WALL)
                 Goto_XY(x, user->Y-(VISION_RANGE+1), "██");
         }
     }
@@ -225,9 +242,9 @@ void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos)
     {
         for(int x=user->X-VISION_RANGE ; x<=user->X+VISION_RANGE ; x++)
         {
-            if(user->Y-VISION_RANGE >= 0 && x >= 0 && x < mapSize.X && *(wall + ((user->Y-VISION_RANGE) * mapSize.X + x)) == WALL)
+            if(user->Y-VISION_RANGE >= 0 && x >= 0 && x < mapSize.X && map[user->Y-VISION_RANGE][x] == MAP_WALL)
                 Goto_XY(x, user->Y-VISION_RANGE, "  ");
-            if(user->Y+(VISION_RANGE+1) <= mapSize.Y-1 && x >= 0 && x < mapSize.X && *(wall + ((user->Y+(VISION_RANGE+1)) * mapSize.X + x)) == WALL)
+            if(user->Y+(VISION_RANGE+1) <= mapSize.Y-1 && x >= 0 && x < mapSize.X && map[user->Y+(VISION_RANGE+1)][x] == MAP_WALL)
                 Goto_XY(x, user->Y+(VISION_RANGE+1), "██");
         }
     }
@@ -235,9 +252,9 @@ void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos)
     {
         for(int y=user->Y-VISION_RANGE ; y<=user->Y+VISION_RANGE ; y++)
         {
-            if(user->X+VISION_RANGE <= mapSize.X-1 && y >= 0 && y < mapSize.Y && *(wall + (y * mapSize.X + (user->X+VISION_RANGE))) == WALL)
+            if(user->X+VISION_RANGE <= mapSize.X-1 && y >= 0 && y < mapSize.Y && map[y][user->X+VISION_RANGE] == MAP_WALL)
                 Goto_XY(user->X+VISION_RANGE, y, "  ");
-            if(user->X-(VISION_RANGE+1) >= 0 && y >= 0 && y < mapSize.Y && *(wall + (y * mapSize.X + (user->X-(VISION_RANGE+1)))) == WALL)
+            if(user->X-(VISION_RANGE+1) >= 0 && y >= 0 && y < mapSize.Y && map[y][user->X-(VISION_RANGE+1)] == MAP_WALL)
                 Goto_XY(user->X-(VISION_RANGE+1), y, "██");
         }
     }
@@ -245,9 +262,9 @@ void UpdateCharacterMap(COORD *user, unsigned char *wall, int xPos, int yPos)
     {
         for(int y=user->Y-VISION_RANGE ; y<=user->Y+VISION_RANGE ; y++)
         {
-            if(user->X-VISION_RANGE >= 0 && y >= 0 && y < mapSize.Y && *(wall + (y * mapSize.X + (user->X-VISION_RANGE))) == WALL)
+            if(user->X-VISION_RANGE >= 0 && y >= 0 && y < mapSize.Y && map[y][user->X-VISION_RANGE] == MAP_WALL)
                 Goto_XY(user->X-VISION_RANGE, y, "  ");
-            if(user->X+(VISION_RANGE+1) <= mapSize.X-1 && y >= 0 && y < mapSize.Y && *(wall + (y * mapSize.X + (user->X+(VISION_RANGE+1)))) == WALL)
+            if(user->X+(VISION_RANGE+1) <= mapSize.X-1 && y >= 0 && y < mapSize.Y && map[y][user->X+(VISION_RANGE+1)] == MAP_WALL)
                 Goto_XY(user->X+(VISION_RANGE+1), y, "██");
         }
     }
@@ -288,5 +305,26 @@ void Setup(void)
     TriggerAltEnter();              // 콘솔창 전체화면
     HideCursor(FALSE);              // 커서 숨기기
     SetConsoleOutputCP(CP_UTF8);    // 콘솔창을 UTF-8로 설정
+    srand(time(NULL));
     Sleep(100);
+}
+
+int main(void)
+{
+    COORD userPos = {1, 1};
+    Setup();
+    GetMazeSize();
+    unsigned char mazeMap[mapSize.Y][mapSize.X];
+    memset(mazeMap, MAP_WALL, sizeof(mazeMap)); // 배열 0으로 초기화
+    GetMaze(mazeMap);
+
+
+    InitMap(userPos, mazeMap); // 초기 맵 출력
+    Goto_XY(userPos.X, userPos.Y, "△");
+    while(1)
+    {
+        MoveUser(&userPos, mazeMap);
+        Sleep(10);
+    }
+    return 0; 
 }
