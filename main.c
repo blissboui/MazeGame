@@ -1,8 +1,8 @@
 #include <stdio.h>
-#include <conio.h>
 #include <windows.h>    // COORD
 #include <time.h>       // time()
 #include <string.h>     // memset()
+#include <conio.h>      // kbhit() getch()
 // ▉ ▲ ▓ █ ■🔺🔽🔼△🔷🔶●⬜◭△🛆▴
 /*  
     1. 난이도 선택 (맵크기) [완]
@@ -17,10 +17,10 @@
 #define RIGHT_KEY  77
 
 
-#define EASY_WIDTH  25
+#define EASY_WIDTH  31
 #define EASY_HEIGHT 25
 #define NORMAL_WIDTH  51
-#define NORMAL_HEIGHT 29
+#define NORMAL_HEIGHT 35
 #define HARD_WIDTH 81
 #define HARD_HEIGHT 45
 
@@ -45,21 +45,30 @@ typedef enum
 	DIRECTION_RIGHT
 } Direction;
 
+typedef enum
+{
+    STATE_START,
+    STATE_END,
+    STATE_PROGRESS
+} ProgramState;
+
 const int DIR[4][2] = {{0,-2}, {0,2}, {-2,0}, {2,0}};
 COORD mapSize = {0, 0};
 
 void Goto_XY(int x, int y, char* str);
 void GetMazeSize(void);
-void GetMaze(unsigned char map[][mapSize.X]);
+COORD GetMaze(unsigned char **map);
+COORD GetStartingPoint(void);
+COORD GetEndPoint(COORD startPoint);
 int InRange(int y, int x);
 void HideCursor(int cursor);
-void MoveUser(COORD *userPos, unsigned char map[][mapSize.X]);
-void ShowUser(COORD *userPos, unsigned char map[][mapSize.X], int newX, int newY);
+void MoveUser(COORD *userPos, unsigned char **map);
+void ShowUser(COORD *userPos, unsigned char **map, int newX, int newY);
 void TriggerAltEnter(void);
 void Setup(void);
-void InitMap(COORD uPos, unsigned char map[][mapSize.X]);
+void InitMap(COORD uPos, unsigned char **map);
 int SelectMaze(void);
-void UpdateVisionMap(COORD *user, unsigned char map[][mapSize.X], int xPos, int yPos);
+void UpdateVisionMap(COORD *user, unsigned char **map, int xPos, int yPos);
 
 void ShuffleArray(int array[], int size)
 {
@@ -74,7 +83,7 @@ void ShuffleArray(int array[], int size)
     }
 }
 
-void GenerateMaze(int y, int x, unsigned char map[][mapSize.X])
+void GenerateMaze(int y, int x, unsigned char **map)
 {
     int nx, ny;
     int directions[4] = {
@@ -110,7 +119,7 @@ void GenerateMaze(int y, int x, unsigned char map[][mapSize.X])
     }
 }
 
-COORD getRandomStartingPoint(void)
+COORD GetStartingPoint(void)
 {
 	int x = 1 + rand() % (mapSize.X - 1);
 	int y = 1 + rand() % (mapSize.Y - 1);
@@ -121,23 +130,36 @@ COORD getRandomStartingPoint(void)
 	return (COORD){x, y};
 }
 
+COORD GetEndPoint(COORD startPoint)
+{
+    int rangeNum = startPoint.X < mapSize.X/2 ? (startPoint.Y < mapSize.Y/2 ? 0 : 2) : (startPoint.Y < mapSize.Y/2 ? 1 : 3);
+    int randNum;
+    COORD endPoints[4] = {
+        {1, 0},
+        {mapSize.X-2, 0},
+        {0, mapSize.Y-2},
+        {mapSize.X-1, mapSize.Y-2}
+    };
+    do
+    {
+        randNum = rand() % 4;
+    }while(randNum == rangeNum);
+
+    return endPoints[randNum];
+}
+
 int InRange(int y, int x)
 {
     return (y < mapSize.Y-1 && y > 0) && (x < mapSize.X-1 && x > 0);
 }
 
-int RandomNumber(int num)
-{
-    return rand() % num + 1;
-}
-
-void InitMap(COORD uPos, unsigned char map[][mapSize.X])
+void InitMap(COORD uPos, unsigned char **map)
 {
     for(int y=0 ; y<mapSize.Y ; y++)
     {
         for(int x=0 ; x<mapSize.X ; x++)
         {
-            if(/*y == 0 || y == mapSize.Y-1 || x == 0 || x == mapSize.X-1 ||*/  (x <= uPos.X+VISION_RANGE && y <= uPos.Y+VISION_RANGE))
+            if((uPos.X-VISION_RANGE <= x && x <= uPos.X+VISION_RANGE) && (uPos.Y - VISION_RANGE <= y && y <= uPos.Y+VISION_RANGE))
             {
                 if(map[y][x] == MAP_WALL)
                     Goto_XY(x, y, "██");
@@ -175,26 +197,57 @@ int SelectMaze(void)
     }
 }
 
+int SelectExit(void)
+{
+    Goto_XY(-3, -4, "[ PAUSE ]");
+    Goto_XY(-4, -2, "> Continue");
+    Goto_XY(-2, -1, "Exit");
+    int idx = 0;
+    int prevIdx = idx;
+    while(1)
+    {
+        if(GetAsyncKeyState(VK_RETURN) & 0x8000)                return idx;
+
+        else if(GetAsyncKeyState(VK_UP) & 0x8000 && idx > 0)    idx--;
+        
+        else if(GetAsyncKeyState(VK_DOWN) & 0x8000 && idx < 1)  idx++;
+    
+        else 
+            continue;
+    
+        Goto_XY(-4, prevIdx-2, " ");
+        Goto_XY(-4, idx-2, ">");
+        
+        prevIdx = idx;
+        Sleep(100);
+    }
+}
+
 void GetMazeSize(void)
 {
     COORD size[] = {{EASY_WIDTH, EASY_HEIGHT}, {NORMAL_WIDTH, NORMAL_HEIGHT}, {HARD_WIDTH, HARD_HEIGHT}};
     int mapSelect = SelectMaze();
     mapSize = size[mapSelect];
+    printf("\033[2J\033[H");    // 화면 clear
 }
 
-void GetMaze(unsigned char map[][mapSize.X])
+COORD GetMaze(unsigned char **map)
 {
-    COORD startPoint = getRandomStartingPoint();
+    COORD startPoint = GetStartingPoint();
+    COORD endPoint = GetEndPoint(startPoint);
 
     GenerateMaze(startPoint.Y, startPoint.X, map);  // 미로 맵 생성
+    map[endPoint.Y][endPoint.X] = MAP_EMPTY;    // 도착 지점 길 뚫기
+
+    return startPoint;
 }
 
-void MoveUser(COORD *userPos, unsigned char map[][mapSize.X])
+void MoveUser(COORD *userPos, unsigned char **map)
 {
     static DWORD lastMoveTime = 0;
     DWORD now = GetTickCount();
 
-    const DWORD moveInterval = 40; // 이동속도 조절 (ms)
+    const DWORD moveInterval = 45; // 이동속도 조절 (ms)
 
     if(now - lastMoveTime < moveInterval)
         return;
@@ -203,36 +256,62 @@ void MoveUser(COORD *userPos, unsigned char map[][mapSize.X])
     int newY = userPos->Y;
 
     if(GetAsyncKeyState(VK_UP) & 0x8000)         newY--;
-    else if(GetAsyncKeyState(VK_DOWN) & 0x8000)  newY++;
-    else if(GetAsyncKeyState(VK_LEFT) & 0x8000)  newX--;
-    else if(GetAsyncKeyState(VK_RIGHT) & 0x8000) newX++;
-    else
-        return;
+    if(GetAsyncKeyState(VK_DOWN) & 0x8000)       newY++;
+    if(GetAsyncKeyState(VK_LEFT) & 0x8000)       newX--;
+    if(GetAsyncKeyState(VK_RIGHT) & 0x8000)      newX++;
 
+    if(newX == userPos->X && newY == userPos->Y)    return;     // 아무키도 안눌렸을때
 
     ShowUser(userPos, map, newX, newY);
     lastMoveTime = now;
 }
 
-void ShowUser(COORD *userPos, unsigned char map[][mapSize.X], int newX, int newY)
+void ShowUser(COORD *userPos, unsigned char **map, int newX, int newY)
 {
-    if(map[newY][newX] != MAP_WALL)
+    static int flag = 0;    // 동시 입력 시 번갈아 실행하기 위함
+
+    // 동시입력
+    if(userPos->X != newX && userPos->Y != newY) 
     {
-        Goto_XY(userPos->X, userPos->Y, "  ");
-        Goto_XY(newX, newY, "△");
-        UpdateVisionMap(userPos, map, newX, newY);
-        userPos->X = newX;
-        userPos->Y = newY;
+        if(map[newY][userPos->X] != MAP_WALL && flag)
+        {
+            Goto_XY(userPos->X, userPos->Y, "  ");
+            Goto_XY(userPos->X, newY, "△");
+            UpdateVisionMap(userPos, map, userPos->X, newY);
+            userPos->Y = newY;
+        }
+
+        if(map[userPos->Y][newX] != MAP_WALL && !flag)
+        {
+            Goto_XY(userPos->X, userPos->Y, "  ");
+            Goto_XY(newX, userPos->Y, "△");
+            UpdateVisionMap(userPos, map, newX, userPos->Y);
+            userPos->X = newX;
+        }
+        flag ^= 1;
+    }
+
+    // 한개입력
+    else
+    {   
+        if(map[newY][newX] != MAP_WALL)
+        {
+            Goto_XY(userPos->X, userPos->Y, "  ");
+            Goto_XY(newX, newY, "△");
+            UpdateVisionMap(userPos, map, newX, newY);
+            userPos->Y = newY;
+            userPos->X = newX;
+        }
     }
 }
 
-void UpdateVisionMap(COORD *user, unsigned char map[][mapSize.X], int xPos, int yPos)
+void UpdateVisionMap(COORD *user, unsigned char **map, int xPos, int yPos)
 {
     if(user->Y - yPos == 1)    // 위
     {
         for(int x=user->X-VISION_RANGE ; x<=(user->X+VISION_RANGE) ; x++)
         {   
-            if(user->Y+VISION_RANGE <= mapSize.Y-1 && x >= 0 && x < mapSize.X && map[user->Y+VISION_RANGE][x]/**(wall + ((user->Y+VISION_RANGE) * mapSize.X + x))*/ == MAP_WALL)
+            if(user->Y+VISION_RANGE <= mapSize.Y-1 && x >= 0 && x < mapSize.X && map[user->Y+VISION_RANGE][x] == MAP_WALL)
                 Goto_XY(x, user->Y+VISION_RANGE, "  ");
             if(user->Y-(VISION_RANGE+1) >= 0 && x >= 0 && x < mapSize.X && map[user->Y-(VISION_RANGE+1)][x] == MAP_WALL)
                 Goto_XY(x, user->Y-(VISION_RANGE+1), "██");
@@ -308,23 +387,80 @@ void Setup(void)
     srand(time(NULL));
     Sleep(100);
 }
+unsigned char **CreateMapArray(void)
+{
+    unsigned char **mapArr = (unsigned char**)malloc(sizeof(unsigned char*) * mapSize.Y);
+    if(mapArr == NULL)
+    {
+        printf("Memory allocation failed! \n");
+        getch();
+        return NULL;
+    }
+
+    for(int i=0 ; i<mapSize.Y ; i++)
+    {
+        mapArr[i] = (unsigned char*)malloc(sizeof(unsigned char*) * mapSize.X);
+        memset(mapArr[i], 0, sizeof(unsigned char) * mapSize.X);    // 데이터 0으로 초기화
+
+        if(mapArr[i] == NULL)
+        {
+            printf("Memory allocation failed! \n");
+            getch();
+            return NULL;
+        }
+    }
+    return mapArr;
+}
+
+void CheckPause(int *pState)
+{
+    if(GetAsyncKeyState(VK_ESCAPE) & 0x8000)
+        *pState = STATE_END;
+}
 
 int main(void)
 {
-    COORD userPos = {1, 1};
     Setup();
-    GetMazeSize();
-    unsigned char mazeMap[mapSize.Y][mapSize.X];
-    memset(mazeMap, MAP_WALL, sizeof(mazeMap)); // 배열 0으로 초기화
-    GetMaze(mazeMap);
-
-
-    InitMap(userPos, mazeMap); // 초기 맵 출력
-    Goto_XY(userPos.X, userPos.Y, "△");
+    unsigned char **mazeMap = NULL;
+    COORD userPos;
+    int programState = STATE_START;
     while(1)
-    {
-        MoveUser(&userPos, mazeMap);
-        Sleep(10);
+    {    
+        switch(programState)
+        {
+            case STATE_START:
+                GetMazeSize();
+                mazeMap = CreateMapArray();
+                userPos = GetMaze(mazeMap);   // 맵 생성 및 시작 지점 반환
+                InitMap(userPos, mazeMap); // 초기 맵 출력
+                Goto_XY(userPos.X, userPos.Y, "△");
+                programState = STATE_PROGRESS;
+                break;
+                
+            case STATE_END:
+                if(SelectExit())
+                {
+                    for(int i=0 ; i<mapSize.Y ; i++)
+                    {
+                        free(mazeMap[i]);
+                    }
+                    free(mazeMap);
+                    mapSize.X= 0;
+                    mapSize.Y = 0;
+                    printf("\033[2J\033[H");    // 화면 clear
+                    Sleep(200);
+                    programState = STATE_START;
+                }
+                else
+                    programState = STATE_PROGRESS;
+                break;
+
+            case STATE_PROGRESS:
+                MoveUser(&userPos, mazeMap);
+                CheckPause(&programState);
+                Sleep(10);
+                break;
+        }
     }
     return 0; 
 }
